@@ -8,9 +8,7 @@
     </include>
     
 
-    <node pkg="turtlebot_teleop" type="turtlebot_teleop_key" name="my_teleop_node" output="screen">
-        <remap from="cmd_vel_mux/Input/teleop" to="keyboard_inputs"/>
-    </node>
+    <node pkg="turtlebot_teleop" type="turtlebot_teleop_key" name="my_teleop_node" output="screen"></node>
 
     <param name="robot_description" command="$(find xacro)/xacro '$(find turtlebot_description)/urdf/turtlebot_gazebo.urdf.xacro'"/>
 
