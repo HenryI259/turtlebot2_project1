@@ -1,0 +1,17 @@
+<launch>
+    <!-- World -->
+    <arg name="world_file" default="$(find turtlebot2_project1)/worlds/room_hallway_world.world"/>
+    <include file="$(find gazebo_ros)/launch/empty_world.launch">
+        <arg name="world_name" value="$(arg world_file)"/>
+        <arg name="paused" value="false"/>
+        <arg name="use_sim_time" value="true"/>
+    </include>
+
+    <param name="robot_description" command="$(find xacro)/xacro '$(find turtlebot_description)/urdf/turtlebot_gazebo.urdf.xacro'"/>
+
+    <!-- Spawn TurtleBot2 -->
+    <node pkg="gazebo_ros" type="spawn_model" name="spawn_turtlebot" args="-urdf -model turtlebot -param robot_description -x 0 -y 0 -z 0.1" />
+
+    <!-- Run move node -->
+    <node pkg="turtlebot2_project1" type="move" name="move" output="screen"/>
+</launch>
