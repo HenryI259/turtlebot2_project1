@@ -6,7 +6,8 @@
         <arg name="paused" value="false"/>
         <arg name="use_sim_time" value="true"/>
     </include>
-    
+
+    <!--include file="$(find turtlebot_navigation)/launch/gmapping_demo.launch" /-->
 
     <node pkg="turtlebot_teleop" type="turtlebot_teleop_key" name="my_teleop_node" output="screen"></node>
 
