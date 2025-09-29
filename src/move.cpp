@@ -9,20 +9,6 @@ using namespace std;
 
 class ExplorerRobot {
 private:
-    // Node Handler
-    ros::NodeHandle nh;
-
-    // Publisher to TurtleBot2 /mobile_base/commands/velocity
-    ros::Publisher pub;
-    
-    // Subscribers
-    ros::Subscriber odom_sub;
-    ros::Subscriber teleop_sub;
-    ros::Subscriber bumper_sub;
-    ros::Subscriber lidar_sub;
-
-    // Rate that the robot updates
-    ros::Rate rate;
 
     // Position
     double pos_x;
@@ -45,6 +31,18 @@ private:
     double linear_speed = 0.3;
     double angular_speed = 1;
 
+    // Method for converting all angles to the range [-pi. pi]
+    double correctAngle(double a) {
+        while (a > 3.14) {
+            a -= 6.28;
+        }
+        while (a < -3.14) {
+            a += 6.28;
+        }
+        return a;
+    }
+
+public:
     // Gets the postion
     void getPosition(const nav_msgs::Odometry::ConstPtr& msg) {
         pos_x = msg->pose.pose.position.x;
@@ -65,7 +63,7 @@ private:
         bumper_side = msg->bumper;
         bumper_state = msg->state;
     }
-
+    // Gets Lidar data
     void getLidar(const sensor_msgs::LaserScan::ConstPtr& msg) {
         int size = msg->ranges.size();
         int mid = size/2;
@@ -92,38 +90,20 @@ private:
 
         left_avg = (left_count > 0) ? left_sum / left_count : msg->range_max;
         right_avg = (right_count > 0) ? right_sum / right_count : msg->range_max;
-    }
-
-    double correctAngle(double a) {
-        while (a > 3.14) {
-            a -= 6.28;
-        }
-        while (a < -3.14) {
-            a += 6.28;
-        }
-        return a;
-    }
-
-public:
-    ExplorerRobot() : rate(60) {}
-
-    void init() {
-        pub = nh.advertise<geometry_msgs::Twist>("/mobile_base/commands/velocity", 10);
-        odom_sub = nh.subscribe("/odom", 10, &ExplorerRobot::getPosition, this);
-        teleop_sub = nh.subscribe("/my_teleop_node/cmd_vel", 10, &ExplorerRobot::getInputs, this);
-        bumper_sub = nh.subscribe("/mobile_base/events/bumper", 10, &ExplorerRobot::getBumper, this);
-        lidar_sub = nh.subscribe("/scan", 10, &ExplorerRobot::getLidar, this);
-    }
+    }    
 
     // move function
-    void move() {
+    void move(ros::Publisher pub, ros::Rate rate) {
+        // Linear and angular value carried through the method
         double linear_wire;
         double angular_wire;
 
+        // Stored positions and angles used for movement
         double start_x = pos_x;
         double start_y = pos_y;
         double target_angle = angle;
 
+        // Flag for a fixed action turn
         bool uninterrupted_turn = false;
 
         // init random generator
@@ -133,37 +113,39 @@ public:
 
         // main loop
         while (ros::ok()) {
-            // default movement
+            // DRIVE FORWARD BEHAVIOR
             linear_wire = linear_speed;
             angular_wire = 0;
-
-            // robot by random amount after traveling 1 ft
-            if (sqrt((pos_x-start_x)*(pos_x-start_x) + (pos_y-start_y)*(pos_y-start_y)) > 0.3048 && !uninterrupted_turn) {
+            
+            // RANDOM TURN BEHAVIOR
+            if (sqrt((pos_x-start_x)*(pos_x-start_x) + (pos_y-start_y)*(pos_y-start_y)) > 0.3048 && !uninterrupted_turn && left_avg > 0.6 && right_avg > 0.6) {
                 target_angle = correctAngle(angle + distrib(gen));
 
                 start_x = pos_x;
                 start_y = pos_y;
             }
 
-            // avoid obstacles
-            if (left_avg < 0.7 && right_avg < 0.7 && !uninterrupted_turn) {
-                target_angle = correctAngle(angle-3.14);
-                printf("Input: %lf, Output: %lf\n", angle, target_angle);
-                uninterrupted_turn = true;
+
+            // AVOID ASYMETRIC OBJECTS BEHAVIOR
+            if (left_avg < 0.6) {
+                angular_wire = -angular_speed;
             }
-            else if (left_avg < 0.6 && !uninterrupted_turn) {
-                target_angle = correctAngle(angle-1.05);
-                uninterrupted_turn = true;
-            }
-            else if (right_avg < 0.6 && !uninterrupted_turn) {
-                target_angle = correctAngle(angle+1.05);
-                uninterrupted_turn = true;
+            else if (right_avg < 0.6) {
+                angular_wire = angular_speed;
             }
 
+            // AVOID SYMETRIC OBJECTS BEHAVIOR
+            if (left_avg < 0.7 && right_avg < 0.7 && !uninterrupted_turn) {
+                target_angle = correctAngle(angle-3.14);
+                uninterrupted_turn = true;
+            }
+            
+            // Don't move if turning
             if (uninterrupted_turn) {
                 linear_wire = 0;
             }
 
+            // Rotate towards the target angle 
             if (abs(target_angle-angle) > 0.05 && abs(abs(target_angle-angle)-6.28) > 0.05) {
                 if ((angle > target_angle && angle-target_angle < 3.14) || (angle < target_angle && angle-target_angle < -3.14)) {
                     angular_wire = -angular_speed;
@@ -176,7 +158,7 @@ public:
                 uninterrupted_turn = false;
             }
 
-            // override movement with the keyboard
+            // ACCEPT KEYBOARD INPUTS
             if (abs(keyboard_linear) > 0.01 || abs(keyboard_angular) > 0.01) {
                 linear_wire = keyboard_linear;
                 angular_wire = keyboard_angular;
@@ -184,7 +166,7 @@ public:
                 uninterrupted_turn = false;
             }
 
-            // halt the robot when a collision is detected
+            // HALT
             if (bumper_state) {
                 linear_wire = 0;
             }
@@ -205,18 +187,33 @@ public:
     }
 
 };
- 
+
 
 int main(int argc, char **argv)
 {
     ros::init(argc, argv, "move_turtlebot2");
-    
+
     ExplorerRobot robot;
 
-    robot.init();
-    robot.move();
+    // Node Handler
+    ros::NodeHandle nh;
+
+    // Publisher to TurtleBot2 /mobile_base/commands/velocity
+    ros::Publisher pub = nh.advertise<geometry_msgs::Twist>("/mobile_base/commands/velocity", 10);
+    
+    // Subscribers
+    ros::Subscriber odom_sub = nh.subscribe("/odom", 10, &ExplorerRobot::getPosition, &robot);
+    ros::Subscriber teleop_sub = nh.subscribe("/my_teleop_node/cmd_vel", 10, &ExplorerRobot::getInputs, &robot);
+    ros::Subscriber bumper_sub = nh.subscribe("/mobile_base/events/bumper", 10, &ExplorerRobot::getBumper, &robot);
+    ros::Subscriber lidar_sub = nh.subscribe("/scan", 10, &ExplorerRobot::getLidar, &robot);
+
+    ros::Rate rate(60);
+
+    // Run move method
+    robot.move(pub, rate);
 
     return 0;
 }
 
-//roslaunch turtlebot2_project1 room_hallway_world.launch
+// Command to run robot
+// roslaunch turtlebot2_project1 room_hallway_world.launch
